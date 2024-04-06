@@ -276,13 +276,14 @@ class LBP():
             labels_train = [v['label'] for v in train_labeled]
     
             preds_train =  [self.belief[v['name']] for v in train_labeled]
-        fpr_train, tpr_train, thresholds_train = roc_curve(labels_train, preds_train)
         else :
             train_labeled =  [v for v in self.labeled_nodes]
     
             labels_train = [v['label'] for v in train_labeled]
     
             preds_train =  [self.belief[v['name']] for v in train_labeled]
+        fpr_train, tpr_train, thresholds_train = roc_curve(labels_train, preds_train)
+
         if plot :
             display_train = RocCurveDisplay.from_predictions(
             labels_train,preds_train,
