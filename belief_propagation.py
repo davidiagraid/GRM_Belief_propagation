@@ -336,7 +336,7 @@ class SBP():
         self.AUC_train_list = []
         self.AUC_test_list = []
         self.belief_without_1 = {}
-
+        self.AUC_graph_test_list = []
 
         # Initialization of messages
         for edge in self.pgm.get_graph().es:
