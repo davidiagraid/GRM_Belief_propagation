@@ -754,7 +754,7 @@ class SBP():
 
         self.propagate(phi = 0.55,N_iter_msg = 20, entire = True)
 
-    def inference_on_test_set(self,obs_rate = 0.2, N_iter = 10:
+    def inference_on_test_set(self,obs_rate = 0.2, N_iter = 10):
         """
         Performs inference on the test set
 
