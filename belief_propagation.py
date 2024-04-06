@@ -9,6 +9,34 @@ def sigmoid(x):
 precision = np.finfo(float).eps
 
 class LBP():
+
+    """
+    A class representing Loopy Belief Propagation (LBP) algorithm.
+
+    Attributes:
+        pgm (graph_model): The graphical model used for LBP.
+        msg (dict): Dictionary to store messages between nodes.
+        belief (dict): Dictionary to store beliefs of nodes.
+        potential (dict): Dictionary to store potential values of nodes.
+        seed (list): List of seed vertices.
+        prop_strength (float): Propagation strength parameter.
+        N_obs (list): List of observed negative nodes.
+        P_obs (list): List of observed positive nodes.
+        AUC_train_list (list): List to store AUC values during training.
+        positive_nodes_test (list): List of positive nodes for testing.
+        negative_nodes_test (list): List of negative nodes for testing.
+
+    Methods:
+        __init__(pgm): Initializes LBP with a graphical model.
+        get_msg(name_neigh, v_name): Retrieves a message between two nodes.
+        compute_belief(v_name): Computes belief of a node.
+        compute_messages(v): Computes messages for a node.
+        propagate(phi): Propagates beliefs through the graph.
+        set_labels(k_1): Sets labels for the vertices.
+        full_inference(obs_rate, N_iter): Performs full inference.
+        get_AUC(plot): Computes the Area Under the Curve (AUC) metric.
+        plot_AUC_list(): Plots the AUC evolution during training.
+    """
     def __init__(self,pgm):
         if type(pgm) is not graph_model:
             raise Exception('PGM is not a graphical model')
@@ -16,76 +44,126 @@ class LBP():
             raise Exception('PGM is not connected')
         if len(pgm.get_graph().es) - 1 == len(pgm.get_graph().vs):
             raise Exception('PGM is a tree')
-        self.msg     = {}
-        self.pgm = pgm
-        self.belief = {}
-        self.potential = {}
-        self.seed = []
-        self.prop_strength = 0.501
-        self.N_obs = []
-        self.P_obs = []
-        self.AUC_train_list = []
-        self.positive_nodes_test = []
-        self.negative_nodes_test = []
+        
+        
+        self.msg = {}  # Dictionary to store messages between nodes
+        self.pgm = pgm  # The graphical model used for LBP
+        self.belief = {}  # Dictionary to store beliefs of nodes
+        self.potential = {}  # Dictionary to store potential values of nodes
+        self.seed = []  # List of seed vertices
+        self.prop_strength = 0.501  # Propagation strength parameter
+        self.N_obs = []  # List of observed negative nodes
+        self.P_obs = []  # List of observed positive nodes
+        self.AUC_train_list = []  # List to store AUC values during training
+        self.positive_nodes_test = []  # List of positive nodes for testing
+        self.negative_nodes_test = []  # List of negative nodes for testing
 
         # Initialization of messages
         for edge in self.pgm.get_graph().es:
             start_index, end_index = edge.tuple[0], edge.tuple[1]
             start_name, end_name = self.pgm.get_graph().vs[start_index]['name'], self.pgm.get_graph().vs[end_index]['name']
 
+            # Initialize messages with default value of 0.5
             self.msg[(start_name, end_name)] = 0.5
             self.msg[(end_name, start_name)] = self.msg[(start_name, end_name)]
 
+        # Initialize potentials and beliefs of nodes with default value of 0.5
         for v in self.pgm.get_graph().vs:
             self.potential[v['name']] = 0.5
             self.belief[v['name']] = 0.5
 
     def get_msg(self,name_neigh, v_name):
+        """
+        Retrieves a message between two nodes.
+
+        Args:
+            name_neigh (str): Name of the neighboring node.
+            v_name (str): Name of the current node.
+
+        Returns:
+            float: The message between the nodes.
+        """
         return self.msg[(name_neigh, v_name)]
 
     def compute_belief(self, v_name):
+        """
+        Computes belief of a node.
+
+        Args:
+            v_name (str): Name of the node.
+        """
         incoming_messages = []
+        # Collect incoming messages from neighbors
         for name_neighbor in self.pgm.get_graph().vs[self.pgm.get_graph().neighbors(v_name)]['name']:
             incoming_messages.append(self.get_msg(name_neighbor, v_name))
+        # Compute positive and negative beliefs
         belief_pos = self.potential[v_name]*np.prod(incoming_messages)
         belief_neg =( 1-self.potential[v_name])*np.prod(np.ones(len(incoming_messages))- incoming_messages)
+
+        # Normalize and update the belief of the node
         self.belief[v_name] = belief_pos/(belief_pos+belief_neg)
 
     def compute_messages(self,v):
+        """
+        Computes messages for a node.
+
+        Args:
+            v (igraph.Vertex): The vertex for which messages are computed.
+        """
         epsilon = self.prop_strength
         start_name = v['name']
 
-        #Message i->j
+        # Compute messages to neighbors
         for end_name in self.pgm.get_graph().vs[self.pgm.get_graph().neighbors(start_name)]['name']:
             msg_pos = epsilon*self.belief[start_name]/self.get_msg(end_name,start_name)+ (1-epsilon)* (1-self.belief[start_name])/(1-self.get_msg(end_name,start_name))
             msg_neg = (1-epsilon)*self.belief[start_name]/self.get_msg(end_name,start_name)+ (epsilon)* (1-self.belief[start_name])/(1-self.get_msg(end_name,start_name))
+
+            # Normalize and update messages
             self.msg[(start_name,end_name)] = msg_pos/(msg_pos+msg_neg)
 
 
     def propagate(self, phi = 0.55):
-          for v in self.pgm.get_graph().vs:
+        """
+        Propagates beliefs through the graph.
+
+        Args:
+            phi (float): Potential parameter.
+        """
+
+        # Set potentials for observed nodes
+        for v in self.pgm.get_graph().vs:
               if v in self.P_obs:
                   self.potential[v['name']] = phi
               elif v in self.N_obs:
                   self.potential[v['name']] = 1-phi
               else:
                   self.potential[v['name']] = 0.5
-
-          for v in self.pgm.get_graph().vs:
+        # Compute beliefs for all nodes
+        for v in self.pgm.get_graph().vs:
               self.compute_belief(v['name'])
-          for v in self.pgm.get_graph().vs:
+        # Compute messages for all nodes
+        for v in self.pgm.get_graph().vs:
               self.compute_messages(v)
 
 
 
     def set_labels(self, k_1 = 100):
+        """
+        Sets labels for the vertices.
+
+        Args:
+            k_1 (int): Number of seed vertices.
+        """
         n_vertices = len([v.index for v in self.pgm.get_graph().vs])
-        OK = False
+        OK = False  
         while not OK :
+            # Choose random seed vertices
             seed = np.random.choice(n_vertices, size = k_1)
             seed_vertices = self.pgm.get_graph().vs.select(seed) # getting seed vertices and setting their label to 1
             self.pgm.get_graph().vs['label'] = 'undefined' # By default
             seed_vertices['label'] = 1
+
+            # Set labels for connected vertices based on ratings
             for v in seed_vertices:
                 incident_edges = self.pgm.get_graph().incident(v.index, mode="all")
                 for edge_i in incident_edges:
@@ -99,11 +177,14 @@ class LBP():
                         self.pgm.get_graph().vs[connected_V]['label'] = 1 #we set positive, all the movies rated 5 by a seed vertex
                     elif  edge['ratings']<5.0  and self.pgm.get_graph().vs[connected_V]['label']== 'undefined':
                         self.pgm.get_graph().vs[connected_V]['label'] = 0
+
+            # Update seed, positive nodes, negative nodes, and labeled nodes
             self.seed = seed
             self.positive_nodes = [v for v in self.pgm.get_graph().vs if v['label']==1]
             self.negative_nodes = [v for v in self.pgm.get_graph().vs if v['label']==0]
             self.labeled_nodes = [v for v in self.pgm.get_graph().vs if v['label']==0 or v['label']==1]
-
+            
+            # Check if the number of positive and negative nodes meet the conditions
             n_pos = len(self.positive_nodes)
             n_neg = len(self.negative_nodes)
             if min(n_pos, n_neg) >0.75*k_1 and max(n_pos,n_neg)<2*k_1:
@@ -113,6 +194,18 @@ class LBP():
 
 
     def full_inference(self,obs_rate = 0.05, N_iter = 60):
+        """
+        Performs full inference.
+
+        Args:
+            obs_rate (float): Rate of observation.
+            N_iter (int): Number of iterations.
+
+        Returns:
+            float: The AUC value.
+        """
+
+        # Randomly observe positive and negative nodes
         obs_index1 = np.random.binomial(1, obs_rate, size = len(self.positive_nodes))
         self.P_obs = [self.positive_nodes[i] for i in range(len(self.positive_nodes)) if obs_index1[i]==1]
 
@@ -120,6 +213,7 @@ class LBP():
         self.N_obs = [self.negative_nodes[i] for i in range(len(self.negative_nodes)) if obs_index2[i]==1]
 
         for a in range(N_iter):
+            # Compute AUC during training
             AUC = self.get_AUC(plot = False)
             self.AUC_train_list.append(AUC)
             self.propagate(phi = 0.55)
@@ -169,6 +263,8 @@ class SBP():
             raise Exception('PGM is not connected')
         if len(pgm.get_graph().es) - 1 == len(pgm.get_graph().vs):
             raise Exception('PGM is a tree')
+        
+        # Initialize message dictionaries and other variables
         self.msg     = {}
         self.msg_new = {}
         self.pgm = pgm
@@ -182,6 +278,8 @@ class SBP():
         self.potential = {}
         self.weight = 0.001*np.ones(6)
 
+
+        # Lists to store observed positive and negative nodes
         self.N_obs = []
         self.P_obs = []
         self.P_trn = []
@@ -248,7 +346,7 @@ class SBP():
 
         epsilon = self.compute_epsilon(edge)
 
-        #Message i->j
+        # Compute message from start to end vertex
         incoming_messages_i = []
         for name_neighbor in self.pgm.get_graph().vs[self.pgm.get_graph().neighbors(start_name)]['name']:
             if name_neighbor != end_name:
@@ -263,7 +361,7 @@ class SBP():
         #else:
         #    self.msg[(start_name, end_name)] = msg_pos/(msg_pos+msg_neg)
 
-        #Message j->i
+        # Compute message from end to start vertex
         incoming_messages_j = []
         for name_neighbor in self.pgm.get_graph().vs[self.pgm.get_graph().neighbors(end_name)]['name']:
             if name_neighbor != start_name:
@@ -278,12 +376,15 @@ class SBP():
         #else:
         #    self.msg[(end_name, start_name)] = msg_pos/(msg_pos+msg_neg)
 
+    # Method to compute epsilon for an edge
     def compute_epsilon(self, edge):
         theta = np.zeros(6)
         rating = float(edge['ratings'])
         theta[math.floor(rating)] = 1
         epsilon = sigmoid(theta.T.dot(self.weight))
         return epsilon
+    
+    # Method to compute theta for an edge according to the 1-hot encoding
     def compute_theta(self,edge):
         theta = np.zeros(6)
         rating = float(edge['ratings'])
@@ -292,6 +393,14 @@ class SBP():
 
 
     def differentiate(self, eta = 1):
+        """
+        Differenciation method from the SBP paper
+        The notztions are kept
+
+        
+        Parameters:
+            eta (int): Number of iterations for message differentiation.
+        """
         for edge in self.pgm.get_graph().es:
             start_index, end_index = edge.tuple[0], edge.tuple[1]
             start_name, end_name = self.pgm.get_graph().vs[start_index]['name'], self.pgm.get_graph().vs[end_index]['name']
@@ -326,9 +435,10 @@ class SBP():
                 #m_ij = self.msg[(start_name, end_name)],precision
                 #m_ji = self.msg[(end_name, start_name)], precision
 
-                #self.msg_sec[(start_name, end_name)]  = (b_j*(1-b_j)*self.msg_prime[(start_name, end_name)])/(m_ij*(1-m_ij))
-                #self.msg_sec[(end_name, start_name)]  = (b_i*(1-b_i)*self.msg_prime[(end_name, start_name)])/(m_ji*(1-m_ji))
-
+                #self.msg_sec[(start_name, end_name)]  = (b_j*(1-b_j)*self.msg_prime[(start_name, end_name)])/(m_ij*(1-m_ij))   # can raise divisions by 0
+                #self.msg_sec[(end_name, start_name)]  = (b_i*(1-b_i)*self.msg_prime[(end_name, start_name)])/(m_ji*(1-m_ji))   # can raise divisions by 0
+                
+                #computing m_ij'' with the changes explained in the report in order to avoid division by 0
                 incoming_msgs_j_red = []
                 incoming_msgs_j = []
                 for name_neighbor in self.pgm.get_graph().vs[self.pgm.get_graph().neighbors(end_name)]['name']:
@@ -350,7 +460,7 @@ class SBP():
                 self.msg_sec[(start_name, end_name)]  = b_j_m_ij*b_jO_m_ijO * self.msg_prime[(start_name, end_name)]
 
 
-
+                #computing m_ji'' with the changes explained in the report in order to avoid division by 0
                 incoming_msgs_i_red = []
                 incoming_msgs_i = []
                 for name_neighbor in self.pgm.get_graph().vs[self.pgm.get_graph().neighbors(start_name)]['name']:
@@ -435,6 +545,14 @@ class SBP():
 
 
     def propagate(self, N_iter_msg = 5, phi = 0.55, entire = False):
+        """
+        Propagates beliefs and messages through the graphical model.
+        
+        Parameters:
+            N_iter_msg (int): Number of iterations for message propagation.
+            phi (float): Potential value for vertices.
+            entire (bool): Flag to indicate whether to propagate over the entire graph or not.
+        """
         if not entire:
             for v in self.pgm.get_graph().vs:
                 if v in self.P_obs:
@@ -465,6 +583,15 @@ class SBP():
                     self.compute_message(edge)
 
     def weight_update(self, lambd = 0.05, d = 0.0001, alpha = 0.00001, beta = 0.00001):
+        """
+        Updates weights based on differentiation.
+        
+        Parameters:
+            lambd (float): Weight regularization parameter.
+            d (float): Small value used in weight update calculation.
+            alpha (float): Learning rate for weight update.
+            beta (float): Weight normalization factor for weight update.
+        """
         self.differentiate()
         w_prime = 2* lambd*self.weight
         for p in self.P_trn:
@@ -475,6 +602,12 @@ class SBP():
         self.weight = self.weight - max(alpha, beta/(np.linalg.norm(w_prime)))* w_prime
 
     def set_labels(self, k_1 = 100):
+        """
+        Sets labels for vertices based on seed vertices and connecting edges' ratings.
+        
+        Parameters:
+            k_1 (int): Number of seed vertices.
+        """
         n_vertices = len([v.index for v in self.pgm.get_graph().vs])
         OK = False
         while not OK :
@@ -506,9 +639,21 @@ class SBP():
 
 
 
-    def full_inference(self,obs_rate = 0.3, N_iter = 60, N_iter_msg = 5, lambd = 0.05, d = 0.0001, alpha = 0.000001, beta = 0.000001):
-        n_vertices = len([v.index for v in self.pgm.get_graph().vs])
+    def full_inference(self,obs_rate = 0.3, N_iter = 60, N_iter_msg = 5, lambd = 0.05, d = 0.0001, alpha = 0.00001, beta = 0.00001):
+        """
+        Perform full inference on the graph.
+        
+        Parameters:
+            obs_rate (float): Observation rate for nodes in the graph.
+            N_iter (int): Number of iterations for full inference.
+            N_iter_msg (int): Number of iterations for message passing.
+            lambd (float): Lambda parameter for weight update.
+            d (float): D parameter for weight update.
+            alpha (float): Alpha parameter for weight update.
+            beta (float): Beta parameter for weight update.
+        """
 
+        # Randomly select observed nodes with given observation rate
         obs_index1 = np.random.binomial(1, obs_rate, size = len(self.positive_nodes))
         self.P_obs = [self.positive_nodes[i] for i in range(len(self.positive_nodes)) if obs_index1[i]==1]
         self.P_trn = [v for v in self.positive_nodes if v not in self.P_obs ]
@@ -518,15 +663,16 @@ class SBP():
         self.N_trn = [v for v in self.negative_nodes if v not in self.N_obs ]
         self.weight_list= []
         self.weight_list.append(0.001*np.ones(6))
+
+        # Perform full inference for specified number of iterations
         for a in range(N_iter):
             self.propagate( N_iter_msg, phi = 0.55)
-            self.weight_update(lambd = 0.05, d = 0.0001, alpha = 0.00001, beta = 0.00001)
+            self.weight_update(lambd = lambd, d = d, alpha = alpha, beta = beta)
             self.weight_list.append(self.weight)
             AUC_train, AUC_test = self.get_AUC(plot = False)
             self.AUC_train_list.append(AUC_train)
             self.AUC_test_list.append(AUC_test)
-            #print(f'AUC train : {AUC_train}')
-            #print(f'AUC test : {AUC_test}')
+            
 
         self.propagate(phi = 0.55,N_iter_msg = 20, entire = True)
 
