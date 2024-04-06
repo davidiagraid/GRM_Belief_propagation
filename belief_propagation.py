@@ -265,7 +265,7 @@ class LBP():
         self.N_obs = [self.negative_nodes_test[i] for i in range(len(self.negative_nodes_test)) if obs_index2[i]==1]
 
         for a in range(N_iter):
-            AUC = self.get_AUC(plot = False)
+            AUC = self.get_AUC(plot = False, test = True)
             self.AUC_test_set.append(AUC)
             self.propagate(phi = 0.55)
 
