@@ -57,7 +57,7 @@ class LBP():
         self.AUC_train_list = []  # List to store AUC values during training
         self.positive_nodes_test = []  # List of positive nodes for testing
         self.negative_nodes_test = []  # List of negative nodes for testing
-
+        self.AUC_test_set = []
         # Initialization of messages
         for edge in self.pgm.get_graph().es:
             start_index, end_index = edge.tuple[0], edge.tuple[1]
@@ -190,7 +190,37 @@ class LBP():
             if min(n_pos, n_neg) >0.75*k_1 and max(n_pos,n_neg)<2*k_1:
                 OK = True
 
+    def test_set_def(self):
+        """
+        Defines a test set that isn't connected to any of the nodes in labeled_nodes.
+        """
+        test_set = self.pgm.get_graph().vs.select([x.index for x in self.pgm.get_graph().vs if x.index not in [v for liste in self.pgm.get_graph().neighborhood(order = 1, vertices = self.labeled_nodes, mindist = 0) for v in liste]])
+        self.test_set = test_set
 
+    def label_test_set(self):
+        """
+        Labels the test set
+        """
+        seed_vertices = self.test_set # getting seed vertices and setting their label to 1
+        self.pgm.get_graph().vs['label'] = 'undefined' # By default
+        seed_vertices['label'] = 1
+        for v in seed_vertices:
+            incident_edges = self.pgm.get_graph().incident(v.index, mode="all")
+            for edge_i in incident_edges:
+                edge = self.pgm.get_graph().es[edge_i]
+                if edge.tuple[1]==v.index:
+                    connected_V = edge.tuple[0]
+                else:
+                    connected_V = edge.tuple[1]
+
+                if edge['ratings']==5.0  :
+                    self.pgm.get_graph().vs[connected_V]['label'] = 1 #we set positive, all the movies rated 5 by a seed vertex
+                elif  edge['ratings']<5.0  and self.pgm.get_graph().vs[connected_V]['label']== 'undefined':
+                    self.pgm.get_graph().vs[connected_V]['label'] = 0
+
+        self.positive_nodes_test = [v for v in self.pgm.get_graph().vs if v['label']==1]
+        self.negative_nodes_test = [v for v in self.pgm.get_graph().vs if v['label']==0]
+        self.labeled_nodes_test = [v for v in self.pgm.get_graph().vs if v['label']==0 or v['label']==1]
 
 
     def full_inference(self,obs_rate = 0.05, N_iter = 60):
@@ -220,6 +250,24 @@ class LBP():
             #print(f'AUC train : {AUC_train}')
             #print(f'AUC test : {AUC_test}')
 
+    def inference_on_test_set(self,obs_rate = 0.2, N_iter = 60):
+        """
+        Performs inference on the test set
+
+        Parameters :
+            obs_rate (float): Observation rate for nodes in the test set.
+            N_iter (int): Number of iterations.
+        """
+        obs_index1 = np.random.binomial(1, obs_rate, size = len(self.positive_nodes_test))
+        self.P_obs = [self.positive_nodes_test[i] for i in range(len(self.positive_nodes_test)) if obs_index1[i]==1]
+
+        obs_index2 = np.random.binomial(1, obs_rate, size = len(self.negative_nodes_test))
+        self.N_obs = [self.negative_nodes_test[i] for i in range(len(self.negative_nodes_test)) if obs_index2[i]==1]
+
+        for a in range(N_iter):
+            AUC = self.get_AUC(plot = False)
+            self.AUC_test_set.append(AUC)
+            self.propagate(phi = 0.55)
 
     def get_AUC(self, plot = False):
 
@@ -637,7 +685,37 @@ class SBP():
             if min(n_pos, n_neg) >0.75*k_1 and max(n_pos,n_neg)<2*k_1:
                 OK = True
 
+    def test_set_def(self):
+        """
+        Defines a test set that isn't connected to any of the nodes in labeled_nodes.
+        """
+        test_set = self.pgm.get_graph().vs.select([x.index for x in self.pgm.get_graph().vs if x.index not in [v for liste in self.pgm.get_graph().neighborhood(order = 1, vertices = self.labeled_nodes, mindist = 0) for v in liste]])
+        self.test_set = test_set
 
+    def label_test_set(self):
+        """
+        Labels the test set
+        """
+        seed_vertices = self.test_set # getting seed vertices and setting their label to 1
+        self.pgm.get_graph().vs['label'] = 'undefined' # By default
+        seed_vertices['label'] = 1
+        for v in seed_vertices:
+            incident_edges = self.pgm.get_graph().incident(v.index, mode="all")
+            for edge_i in incident_edges:
+                edge = self.pgm.get_graph().es[edge_i]
+                if edge.tuple[1]==v.index:
+                    connected_V = edge.tuple[0]
+                else:
+                    connected_V = edge.tuple[1]
+
+                if edge['ratings']==5.0  :
+                    self.pgm.get_graph().vs[connected_V]['label'] = 1 #we set positive, all the movies rated 5 by a seed vertex
+                elif  edge['ratings']<5.0  and self.pgm.get_graph().vs[connected_V]['label']== 'undefined':
+                    self.pgm.get_graph().vs[connected_V]['label'] = 0
+
+        self.positive_nodes_test = [v for v in self.pgm.get_graph().vs if v['label']==1]
+        self.negative_nodes_test = [v for v in self.pgm.get_graph().vs if v['label']==0]
+        self.labeled_nodes_test = [v for v in self.pgm.get_graph().vs if v['label']==0 or v['label']==1]
 
     def full_inference(self,obs_rate = 0.3, N_iter = 60, N_iter_msg = 5, lambd = 0.05, d = 0.0001, alpha = 0.00001, beta = 0.00001):
         """
@@ -676,7 +754,26 @@ class SBP():
 
         self.propagate(phi = 0.55,N_iter_msg = 20, entire = True)
 
+    def inference_on_test_set(self,obs_rate = 0.2, N_iter = 10:
+        """
+        Performs inference on the test set
 
+        Parameters :
+            obs_rate (float): Observation rate for nodes in the test set.
+            N_iter (int): Number of iterations.
+        """
+        n_vertices = len([v.index for v in self.pgm.get_graph().vs])
+
+        obs_index1 = np.random.binomial(1, obs_rate, size = len(self.positive_nodes_test))
+        self.P_obs = [self.positive_nodes_test[i] for i in range(len(self.positive_nodes_test)) if obs_index1[i]==1]
+
+        obs_index2 = np.random.binomial(1, obs_rate, size = len(self.negative_nodes_test))
+        self.N_obs = [self.negative_nodes_test[i] for i in range(len(self.negative_nodes_test)) if obs_index2[i]==1]
+        for a in range(N_iter):
+            self.propagate(phi = 0.55,N_iter_msg = 1, entire = True)
+            AUC_test = self.get_AUC_test(plot = False)
+            self.AUC_graph_test_list.append(AUC_test)
+            
     def plot_weight_evolution(self, N_iterations):
         weights = np.array(self.weight_list)
 
@@ -727,8 +824,44 @@ class SBP():
         AUC_train_micro = roc_auc_score(labels_train,preds_train,multi_class="ovr",average="micro")
         AUC_test_micro = roc_auc_score(labels_test,preds_test,multi_class="ovr",average="micro")
 
-
         return AUC_train_micro, AUC_test_micro
+
+    def get_AUC_test(self, plot = False):
+
+        test_labeled = [v for v in self.labeled_nodes_test if v in self.P_obs or v in self.N_obs]
+
+        labels_test = [v['label'] for v in test_labeled]
+
+        preds_test =  [self.belief[v['name']] for v in test_labeled]
+
+        fpr_test, tpr_test, thresholds_test = roc_curve(labels_test, preds_test)
+
+        if plot :
+            display_train = RocCurveDisplay.from_predictions(
+            labels_train,preds_train,
+            name='Train ROC CURVE',
+            color="darkorange")
+
+            _ = display_train.ax_.set(
+            xlabel="False Positive Rate",
+            ylabel="True Positive Rate",
+            title="Train ROC CURVE")
+            plt.show()
+
+            display_test = RocCurveDisplay.from_predictions(
+            labels_test,
+            preds_test,
+            name='Test ROC CURVE',
+            color="darkorange")
+            _ = display_test.ax_.set(
+            xlabel="False Positive Rate",
+            ylabel="True Positive Rate",
+            title="Test ROC CURVE")
+            plt.show()
+
+        AUC_test_micro = roc_auc_score(labels_test,preds_test,multi_class="ovr",average="micro")
+        return AUC_test_micro
+
     def plot_AUC_list(self):
         plt.plot(range(len(self.AUC_train_list)), self.AUC_train_list, label = 'AUC training')
         plt.xlabel('Number of iterations')
@@ -738,28 +871,32 @@ class SBP():
         plt.show()
 
     def copy_labels(self, seed_list,k_1=100):
-        n_vertices = len([v.index for v in self.pgm.get_graph().vs])
-        for i in range(1) :
-            seed_vertices = self.pgm.get_graph().vs.select(seed_list) # getting seed vertices and setting their label to 1
-            self.pgm.get_graph().vs['label'] = 'undefined' # By default
-            seed_vertices['label'] = 1
-            for v in seed_vertices:
-                incident_edges = self.pgm.get_graph().incident(v.index, mode="all")
-                for edge_i in incident_edges:
-                    edge = self.pgm.get_graph().es[edge_i]
-                    if edge.tuple[1]==v.index:
-                        connected_V = edge.tuple[0]
-                    else:
-                        connected_V = edge.tuple[1]
+        """
+        Sets labels for vertices based of a set seed.
+        
+        Parameters:
+            seed_list (list of int): List corresponding to a given seed.
+        """
+        seed_vertices = self.pgm.get_graph().vs.select(seed_list) # getting seed vertices and setting their label to 1
+        self.pgm.get_graph().vs['label'] = 'undefined' # By default
+        seed_vertices['label'] = 1
+        for v in seed_vertices:
+            incident_edges = self.pgm.get_graph().incident(v.index, mode="all")
+            for edge_i in incident_edges:
+                edge = self.pgm.get_graph().es[edge_i]
+                if edge.tuple[1]==v.index:
+                    connected_V = edge.tuple[0]
+                else:
+                    connected_V = edge.tuple[1]
 
-                    if edge['ratings']==5.0  :
-                        self.pgm.get_graph().vs[connected_V]['label'] = 1 #we set positive, all the movies rated 5 by a seed vertex
-                    elif  edge['ratings']<5.0  and self.pgm.get_graph().vs[connected_V]['label']== 'undefined':
-                        self.pgm.get_graph().vs[connected_V]['label'] = 0
+                if edge['ratings']==5.0  :
+                    self.pgm.get_graph().vs[connected_V]['label'] = 1 #we set positive, all the movies rated 5 by a seed vertex
+                elif  edge['ratings']<5.0  and self.pgm.get_graph().vs[connected_V]['label']== 'undefined':
+                    self.pgm.get_graph().vs[connected_V]['label'] = 0
 
-            self.positive_nodes = [v for v in self.pgm.get_graph().vs if v['label']==1]
-            self.negative_nodes = [v for v in self.pgm.get_graph().vs if v['label']==0]
-            self.labeled_nodes = [v for v in self.pgm.get_graph().vs if v['label']==0 or v['label']==1]
+        self.positive_nodes = [v for v in self.pgm.get_graph().vs if v['label']==1]
+        self.negative_nodes = [v for v in self.pgm.get_graph().vs if v['label']==0]
+        self.labeled_nodes = [v for v in self.pgm.get_graph().vs if v['label']==0 or v['label']==1]
 
-            n_pos = len(self.positive_nodes)
-            n_neg = len(self.negative_nodes)
+    
+    
