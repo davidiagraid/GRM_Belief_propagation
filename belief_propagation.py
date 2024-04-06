@@ -8,6 +8,159 @@ def sigmoid(x):
 
 precision = np.finfo(float).eps
 
+class LBP():
+    def __init__(self,pgm):
+        if type(pgm) is not graph_model:
+            raise Exception('PGM is not a graphical model')
+        if not pgm.is_connected():
+            raise Exception('PGM is not connected')
+        if len(pgm.get_graph().es) - 1 == len(pgm.get_graph().vs):
+            raise Exception('PGM is a tree')
+        self.msg     = {}
+        self.pgm = pgm
+        self.belief = {}
+        self.potential = {}
+        self.seed = []
+        self.prop_strength = 0.501
+        self.N_obs = []
+        self.P_obs = []
+        self.AUC_train_list = []
+        self.positive_nodes_test = []
+        self.negative_nodes_test = []
+
+        # Initialization of messages
+        for edge in self.pgm.get_graph().es:
+            start_index, end_index = edge.tuple[0], edge.tuple[1]
+            start_name, end_name = self.pgm.get_graph().vs[start_index]['name'], self.pgm.get_graph().vs[end_index]['name']
+
+            self.msg[(start_name, end_name)] = 0.5
+            self.msg[(end_name, start_name)] = self.msg[(start_name, end_name)]
+
+        for v in self.pgm.get_graph().vs:
+            self.potential[v['name']] = 0.5
+            self.belief[v['name']] = 0.5
+
+    def get_msg(self,name_neigh, v_name):
+        return self.msg[(name_neigh, v_name)]
+
+    def compute_belief(self, v_name):
+        incoming_messages = []
+        for name_neighbor in self.pgm.get_graph().vs[self.pgm.get_graph().neighbors(v_name)]['name']:
+            incoming_messages.append(self.get_msg(name_neighbor, v_name))
+        belief_pos = self.potential[v_name]*np.prod(incoming_messages)
+        belief_neg =( 1-self.potential[v_name])*np.prod(np.ones(len(incoming_messages))- incoming_messages)
+        self.belief[v_name] = belief_pos/(belief_pos+belief_neg)
+
+    def compute_messages(self,v):
+        epsilon = self.prop_strength
+        start_name = v['name']
+
+        #Message i->j
+        for end_name in self.pgm.get_graph().vs[self.pgm.get_graph().neighbors(start_name)]['name']:
+            msg_pos = epsilon*self.belief[start_name]/self.get_msg(end_name,start_name)+ (1-epsilon)* (1-self.belief[start_name])/(1-self.get_msg(end_name,start_name))
+            msg_neg = (1-epsilon)*self.belief[start_name]/self.get_msg(end_name,start_name)+ (epsilon)* (1-self.belief[start_name])/(1-self.get_msg(end_name,start_name))
+            self.msg[(start_name,end_name)] = msg_pos/(msg_pos+msg_neg)
+
+
+    def propagate(self, phi = 0.55):
+          for v in self.pgm.get_graph().vs:
+              if v in self.P_obs:
+                  self.potential[v['name']] = phi
+              elif v in self.N_obs:
+                  self.potential[v['name']] = 1-phi
+              else:
+                  self.potential[v['name']] = 0.5
+
+          for v in self.pgm.get_graph().vs:
+              self.compute_belief(v['name'])
+          for v in self.pgm.get_graph().vs:
+              self.compute_messages(v)
+
+
+
+    def set_labels(self, k_1 = 100):
+        n_vertices = len([v.index for v in self.pgm.get_graph().vs])
+        OK = False
+        while not OK :
+            seed = np.random.choice(n_vertices, size = k_1)
+            seed_vertices = self.pgm.get_graph().vs.select(seed) # getting seed vertices and setting their label to 1
+            self.pgm.get_graph().vs['label'] = 'undefined' # By default
+            seed_vertices['label'] = 1
+            for v in seed_vertices:
+                incident_edges = self.pgm.get_graph().incident(v.index, mode="all")
+                for edge_i in incident_edges:
+                    edge = self.pgm.get_graph().es[edge_i]
+                    if edge.tuple[1]==v.index:
+                        connected_V = edge.tuple[0]
+                    else:
+                        connected_V = edge.tuple[1]
+
+                    if edge['ratings']==5.0  :
+                        self.pgm.get_graph().vs[connected_V]['label'] = 1 #we set positive, all the movies rated 5 by a seed vertex
+                    elif  edge['ratings']<5.0  and self.pgm.get_graph().vs[connected_V]['label']== 'undefined':
+                        self.pgm.get_graph().vs[connected_V]['label'] = 0
+            self.seed = seed
+            self.positive_nodes = [v for v in self.pgm.get_graph().vs if v['label']==1]
+            self.negative_nodes = [v for v in self.pgm.get_graph().vs if v['label']==0]
+            self.labeled_nodes = [v for v in self.pgm.get_graph().vs if v['label']==0 or v['label']==1]
+
+            n_pos = len(self.positive_nodes)
+            n_neg = len(self.negative_nodes)
+            if min(n_pos, n_neg) >0.75*k_1 and max(n_pos,n_neg)<2*k_1:
+                OK = True
+
+
+
+
+    def full_inference(self,obs_rate = 0.05, N_iter = 60):
+        obs_index1 = np.random.binomial(1, obs_rate, size = len(self.positive_nodes))
+        self.P_obs = [self.positive_nodes[i] for i in range(len(self.positive_nodes)) if obs_index1[i]==1]
+
+        obs_index2 = np.random.binomial(1, obs_rate, size = len(self.negative_nodes))
+        self.N_obs = [self.negative_nodes[i] for i in range(len(self.negative_nodes)) if obs_index2[i]==1]
+
+        for a in range(N_iter):
+            AUC = self.get_AUC(plot = False)
+            self.AUC_train_list.append(AUC)
+            self.propagate(phi = 0.55)
+            #print(f'AUC train : {AUC_train}')
+            #print(f'AUC test : {AUC_test}')
+
+
+    def get_AUC(self, plot = False):
+
+        train_labeled =  [v for v in self.labeled_nodes]
+
+        labels_train = [v['label'] for v in train_labeled]
+
+        preds_train =  [self.belief[v['name']] for v in train_labeled]
+        fpr_train, tpr_train, thresholds_train = roc_curve(labels_train, preds_train)
+
+        if plot :
+            display_train = RocCurveDisplay.from_predictions(
+            labels_train,preds_train,
+            name='Train ROC CURVE',
+            color="darkorange")
+
+            _ = display_train.ax_.set(
+            xlabel="False Positive Rate",
+            ylabel="True Positive Rate",
+            title="Train ROC CURVE")
+            plt.show()
+
+
+        AUC = roc_auc_score(labels_train,preds_train,multi_class="ovr",average="micro")
+
+
+        return AUC
+    def plot_AUC_list(self):
+        plt.plot(range(len(self.AUC_train_list)), self.AUC_train_list, label = 'AUC train')
+        plt.xlabel('Number of iterations')
+        plt.ylabel('AUC')
+        plt.title('AUC evolution during training')
+        plt.legend()
+        plt.show()
+
 class SBP():
     def __init__(self,pgm):
         if type(pgm) is not graph_model:
@@ -431,8 +584,7 @@ class SBP():
 
         return AUC_train_micro, AUC_test_micro
     def plot_AUC_list(self):
-        plt.plot(range(len(self.AUC_train_list)), self.AUC_train_list, label = 'AUC train')
-        plt.plot(range(len(self.AUC_test_list)), self.AUC_test_list, label = 'AUC test')
+        plt.plot(range(len(self.AUC_train_list)), self.AUC_train_list, label = 'AUC training')
         plt.xlabel('Number of iterations')
         plt.ylabel('AUC')
         plt.title('AUC evolution during training')
