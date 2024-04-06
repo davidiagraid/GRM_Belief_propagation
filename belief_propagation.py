@@ -843,16 +843,7 @@ class SBP():
         fpr_test, tpr_test, thresholds_test = roc_curve(labels_test, preds_test)
 
         if plot :
-            display_train = RocCurveDisplay.from_predictions(
-            labels_train,preds_train,
-            name='Train ROC CURVE',
-            color="darkorange")
-
-            _ = display_train.ax_.set(
-            xlabel="False Positive Rate",
-            ylabel="True Positive Rate",
-            title="Train ROC CURVE")
-            plt.show()
+    
 
             display_test = RocCurveDisplay.from_predictions(
             labels_test,
